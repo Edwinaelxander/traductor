@@ -9,7 +9,7 @@ import java.io.InputStream;
 import java.util.concurrent.Executors;
 
 public class Main {
-
+    public static volatile boolean micTtsPlaying = false;
     // Ajusta estos nombres según tu lista de mixers:
     private static final String MIC_MIXER   = "Micrófono (2- USB PnP Audio Device)";
     private static final String SYS_MIXER   = "CABLE Output (VB-Audio Virtual Cable)";
@@ -35,7 +35,7 @@ public class Main {
                                 SpeechTranslationConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
                         config.setSpeechRecognitionLanguage(fromLang);
                         config.addTargetLanguage(toLang);
-                        config.setProperty(PropertyId.Speech_SegmentationSilenceTimeoutMs, "230");
+                        config.setProperty(PropertyId.Speech_SegmentationSilenceTimeoutMs, "200");
                         // bajamos timeout a 300 ms para que detecte pausas cortas
 
                         PushAudioInputStream push = AudioInputStream.createPushStream(
@@ -43,26 +43,23 @@ public class Main {
                         AudioConfig audioInput = AudioConfig.fromStreamInput(push);
 
                         try (TranslationRecognizer recognizer = new TranslationRecognizer(config, audioInput)) {
-                            // **Interinos**: traducción parcial mientras hablan
-                            recognizer.recognizing.addEventListener((s, e) -> {
-                                if (e.getResult().getReason() == ResultReason.TranslatingSpeech) {
-                                    String partial = e.getResult().getTranslations().get(toLang);
-                                    System.out.printf("[%s][~] %s→%s: %s\r",
-                                            name, fromLang, toLang, partial);
-                                }
-                            });
-
-                            // **Finales**: traducción completa al detectar pausa
+                            // 4) Listener para traducción final
                             recognizer.recognized.addEventListener((s, e) -> {
                                 if (e.getResult().getReason() == ResultReason.TranslatedSpeech) {
                                     String full = e.getResult().getTranslations().get(toLang);
-                                    System.out.printf("\n[%s][✓] %s→%s: %s%n",
-                                            name, fromLang, toLang, full);
+                                    System.out.printf("\n[%s][✓] %s→%s: %s%n", name, fromLang, toLang, full);
 
-                                    // TTS final
+                                    // 5) TTS en hilo separado
                                     Executors.newSingleThreadExecutor().submit(() -> {
                                         try (InputStream mp3 = ElevenLabsTTS.synthesize(full)) {
-                                            new Player(mp3).play();
+                                            if (name.equals("MicThread")) {
+                                                Main.micTtsPlaying = true;
+                                                TtsPlayer.playOnDevice(mp3, "VB-Audio Virtual Cable");
+                                                Main.micTtsPlaying = false;
+                                            } else {
+                                                TtsPlayer.playOnDevice(mp3, "USB PnP Audio Device");
+                                            }
+
                                         } catch (Exception ex) {
                                             ex.printStackTrace();
                                         }
@@ -76,6 +73,9 @@ public class Main {
                             // loop que alimenta los chunks
                             while (true) {
                                 byte[] chunk = capturer.nextChunk();
+                                if (name.equals("SysThread") && Main.micTtsPlaying) {
+                                    continue;
+                                }
                                 push.write(chunk);
                             }
                         }
