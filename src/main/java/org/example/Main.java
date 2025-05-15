@@ -12,7 +12,7 @@ public class Main {
     public static volatile boolean micTtsPlaying = false;
     // Ajusta estos nombres según tu lista de mixers:
     private static final String MIC_MIXER   = "Micrófono (2- USB PnP Audio Device)";
-    private static final String SYS_MIXER   = "CABLE Output (VB-Audio Virtual Cable)";
+    private static final String SYS_MIXER   = "CABLE Output (2- VB-Audio Virtual Cable)";
     private static final String AZURE_KEY = "DCJm7CU4OJTsH77IrfCtuCYRjs2NjvRtT0GJE1Ogr7ea8lgtNa7NJQQJ99BDACYeBjFXJ3w3AAAYACOGWQnN";
     private static final String AZURE_REGION = "eastus";
     public static void main(String[] args) throws Exception {
@@ -49,23 +49,25 @@ public class Main {
                                     String full = e.getResult().getTranslations().get(toLang);
                                     System.out.printf("\n[%s][✓] %s→%s: %s%n", name, fromLang, toLang, full);
 
-                                    // 5) TTS en hilo separado
                                     Executors.newSingleThreadExecutor().submit(() -> {
-                                        try (InputStream mp3 = ElevenLabsTTS.synthesize(full)) {
+                                        try {
+                                            InputStream audioStream;
                                             if (name.equals("MicThread")) {
+                                                audioStream = ElevenLabsTTS.synthesize(full);
                                                 Main.micTtsPlaying = true;
-                                                TtsPlayer.playOnDevice(mp3, "VB-Audio Virtual Cable");
+                                                TtsPlayer.playOnDevice(audioStream, "VB-Audio Virtual Cable");
                                                 Main.micTtsPlaying = false;
                                             } else {
-                                                TtsPlayer.playOnDevice(mp3, "USB PnP Audio Device");
+                                                audioStream = GoogleCloudTTS.synthesize(full);
+                                                TtsPlayer.playOnDevice(audioStream, "USB PnP Audio Device");
                                             }
-
                                         } catch (Exception ex) {
                                             ex.printStackTrace();
                                         }
                                     });
                                 }
                             });
+
 
                             // arranca el streaming
                             recognizer.startContinuousRecognitionAsync().get();
